@@ -1,0 +1,21 @@
+# Checklist de Livraison AADL RDV
+
+- [x] Environnement prêt
+- [x] Base de données configurée
+- [x] Migrations complétées
+- [x] Données de seed optionnelles disponibles
+- [x] Connexions des acteurs testées
+- [x] Workflow Souscripteur testé
+- [x] Workflow Responsable testé
+- [x] Scanner Agent testé
+- [x] QR Code testé
+- [x] Workflow des statuts testé
+- [x] Capacité de 30 RDV testée
+- [x] Isolation de sécurité testée
+- [x] Design responsive testé
+- [x] Tests automatisés passés
+- [x] Tests JavaScript passés
+- [x] Build frontend passé
+- [x] `.env` exclu
+- [x] Identifiants de production non inclus
+- [x] Périmètre Admin non défini
