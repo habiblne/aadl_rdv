@@ -159,6 +159,10 @@ class DatabaseSeeder extends Seeder
             ['email' => 'admin@aadl.test'],
             ['password' => Hash::make('password')]
         );
+
+        if (! app()->environment('production')) {
+            $this->seedPaginationPreviewData($primaryDr);
+        }
     }
 
     private function deleteUnreferencedLegacyTlemcenDirection(): void
@@ -174,5 +178,34 @@ class DatabaseSeeder extends Seeder
                 $dr->delete();
             }
         });
+    }
+
+    private function seedPaginationPreviewData(Dr $dr): void
+    {
+        for ($i = 1; $i <= 20; $i++) {
+            $code = 'PAGE'.str_pad((string) $i, 3, '0', STR_PAD_LEFT);
+
+            $souscripteur = Souscripteur::updateOrCreate(
+                ['code' => $code],
+                [
+                    'nom' => 'Preview',
+                    'prenom' => 'Pagination '.str_pad((string) $i, 2, '0', STR_PAD_LEFT),
+                    'nin' => '88888888888888'.str_pad((string) $i, 4, '0', STR_PAD_LEFT),
+                    'prop' => 'F3',
+                    'wil' => '16',
+                    'dr_id' => $dr->id,
+                    'password' => Hash::make('password'),
+                ]
+            );
+
+            $souscripteur->rdvs()->updateOrCreate(
+                ['motif' => 'Pagination preview'],
+                [
+                    'dr_id' => $dr->id,
+                    'date' => now()->addDays(3 + (($i - 1) % 5))->toDateString(),
+                    'statut' => \App\Models\Rdv::STATUT_RDV_PRIS,
+                ]
+            );
+        }
     }
 }

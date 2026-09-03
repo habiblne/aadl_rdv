@@ -130,6 +130,106 @@ class AppointmentSheetTest extends TestCase
             ->assertSessionHasErrors('rdv');
     }
 
+    public function test_pdf_route_is_available_from_existing_sheet(): void
+    {
+        $souscripteur = $this->createSouscripteur();
+        $rdv = $this->createRdv($souscripteur, $this->createDr(), [
+            'statut' => Rdv::STATUT_RDV_ACCEPTE,
+        ]);
+
+        $this->actingAs($souscripteur, 'souscripteur')
+            ->get(route('souscripteur.rdvs.fiche', $rdv->hashid))
+            ->assertOk()
+            ->assertSee(route('souscripteur.rdvs.pdf', $rdv->hashid), false)
+            ->assertSee('Télécharger PDF', false);
+    }
+
+    public function test_authenticated_souscripteur_can_download_own_pdf_for_allowed_statuses(): void
+    {
+        foreach ([Rdv::STATUT_RDV_ACCEPTE, Rdv::STATUT_RDV_VALIDE, Rdv::STATUT_RDV_COMPLETE] as $status) {
+            $souscripteur = $this->createSouscripteur();
+            $rdv = $this->createRdv($souscripteur, $this->createDr(), [
+                'statut' => $status,
+            ]);
+
+            $response = $this->actingAs($souscripteur, 'souscripteur')
+                ->get(route('souscripteur.rdvs.pdf', $rdv->hashid));
+
+            $response->assertOk();
+            $this->assertStringStartsWith('%PDF-', $response->getContent());
+            $this->assertStringContainsString('/Subtype /Image', $response->getContent());
+            $this->assertStringContainsString('application/pdf', $response->headers->get('content-type'));
+            $this->assertStringContainsString('fiche-rdv-'.$rdv->hashid.'.pdf', $response->headers->get('content-disposition'));
+        }
+    }
+
+    public function test_status_zero_rdv_does_not_expose_pdf(): void
+    {
+        $souscripteur = $this->createSouscripteur();
+        $rdv = $this->createRdv($souscripteur, $this->createDr(), [
+            'statut' => Rdv::STATUT_RDV_PRIS,
+        ]);
+
+        $this->actingAs($souscripteur, 'souscripteur')
+            ->get(route('souscripteur.rdvs.pdf', $rdv->hashid))
+            ->assertRedirect('/souscripteur/rdvs')
+            ->assertSessionHasErrors('rdv');
+    }
+
+    public function test_souscripteur_cannot_download_another_souscripteurs_pdf(): void
+    {
+        $owner = $this->createSouscripteur();
+        $other = $this->createSouscripteur();
+        $rdv = $this->createRdv($owner, $this->createDr(), [
+            'statut' => Rdv::STATUT_RDV_ACCEPTE,
+        ]);
+
+        $this->actingAs($other, 'souscripteur')
+            ->get(route('souscripteur.rdvs.pdf', $rdv->hashid))
+            ->assertNotFound();
+    }
+
+    public function test_invalid_hashid_returns_404_for_pdf(): void
+    {
+        $this->actingAs($this->createSouscripteur(), 'souscripteur')
+            ->get('/souscripteur/rdvs/not-a-valid-hashid/pdf')
+            ->assertNotFound();
+    }
+
+    public function test_pdf_uses_same_hashid_verification_url_for_qr_without_personal_data(): void
+    {
+        $souscripteur = $this->createSouscripteur([
+            'code' => 'SUB889',
+            'nom' => 'Personnel',
+            'prenom' => 'Pdf',
+            'nin' => '889889889889889889',
+        ]);
+        $rdv = $this->createRdv($souscripteur, $this->createDr(), [
+            'statut' => Rdv::STATUT_RDV_ACCEPTE,
+        ]);
+        $verificationUrl = route('agent.rdvs.verification', $rdv->hashid);
+
+        $html = view('souscripteur.rdvs.pdf', [
+            'rdv' => $rdv->loadMissing('dr'),
+            'souscripteur' => $souscripteur,
+            'verificationUrl' => $verificationUrl,
+            'qrCode' => '<svg></svg>',
+            'qrCodeImage' => 'data:image/png;base64,QR',
+            'logoDataUri' => '',
+            'maskedNin' => '**************9889',
+        ])->render();
+
+        $this->assertStringContainsString('data-qr-content="'.$verificationUrl.'"', $html);
+        $this->assertStringContainsString('data:image/png;base64,QR', $html);
+        $this->assertStringContainsString('**************9889', $html);
+        $this->assertStringNotContainsString("/agent/rdvs/{$rdv->id}/verification", $html);
+        $this->assertStringNotContainsString('889889889889889889', $html);
+        $this->assertStringNotContainsString('SUB889', $verificationUrl);
+        $this->assertStringNotContainsString('Personnel', $verificationUrl);
+        $this->assertStringNotContainsString('Pdf', $verificationUrl);
+        $this->assertStringNotContainsString('889889889889889889', $verificationUrl);
+    }
+
     public function test_status_one_rdv_exposes_sheet(): void
     {
         $this->assertSheetAvailableForStatus(Rdv::STATUT_RDV_ACCEPTE);

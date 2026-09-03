@@ -2,9 +2,12 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Rdv;
 use App\Models\Dr;
+use App\Models\Rdv;
 use App\Support\RdvHashids;
+use BaconQrCode\Common\ErrorCorrectionLevel;
+use BaconQrCode\Encoder\Encoder;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -14,6 +17,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use SimpleSoftwareIO\QrCode\Facades\QrCode;
+use Symfony\Component\HttpFoundation\Response;
 
 class SouscripteurRdvController extends Controller
 {
@@ -79,25 +83,30 @@ class SouscripteurRdvController extends Controller
 
     public function fiche(string $hashid, RdvHashids $hashids): View|RedirectResponse
     {
-        $rdv = $hashids->findOrFail($hashid);
-        $souscripteur = Auth::guard('souscripteur')->user();
+        $data = $this->ficheData($hashid, $hashids);
 
-        abort_unless($rdv->souscripteur_id === $souscripteur->id, 404);
-
-        if ($rdv->statut === Rdv::STATUT_RDV_PRIS) {
+        if ($this->ficheIsUnavailable($data['rdv'])) {
             return redirect()
                 ->route('souscripteur.rdvs.index')
                 ->withErrors(['rdv' => 'Le rendez-vous doit être accepté avant que la fiche soit disponible.']);
         }
 
-        $verificationUrl = route('agent.rdvs.verification', $rdv->hashid);
+        return view('souscripteur.rdvs.fiche', $data);
+    }
 
-        return view('souscripteur.rdvs.fiche', [
-            'rdv' => $rdv,
-            'souscripteur' => $souscripteur,
-            'verificationUrl' => $verificationUrl,
-            'qrCode' => QrCode::format('svg')->size(180)->generate($verificationUrl),
-        ]);
+    public function pdf(string $hashid, RdvHashids $hashids): Response|RedirectResponse
+    {
+        $data = $this->ficheData($hashid, $hashids);
+
+        if ($this->ficheIsUnavailable($data['rdv'])) {
+            return redirect()
+                ->route('souscripteur.rdvs.index')
+                ->withErrors(['rdv' => 'Le rendez-vous doit être accepté avant que la fiche soit disponible.']);
+        }
+
+        return Pdf::loadView('souscripteur.rdvs.pdf', $data)
+            ->setPaper('a4')
+            ->download('fiche-rdv-'.$data['rdv']->hashid.'.pdf');
     }
 
     public function store(Request $request): RedirectResponse
@@ -165,6 +174,98 @@ class SouscripteurRdvController extends Controller
     private function minimumAppointmentDate(): Carbon
     {
         return Carbon::today()->addDays(3);
+    }
+
+    private function ficheData(string $hashid, RdvHashids $hashids): array
+    {
+        $rdv = $hashids->findOrFail($hashid)->loadMissing('dr');
+        $souscripteur = Auth::guard('souscripteur')->user();
+
+        abort_unless($rdv->souscripteur_id === $souscripteur->id, 404);
+
+        $verificationUrl = route('agent.rdvs.verification', $rdv->hashid);
+
+        return [
+            'rdv' => $rdv,
+            'souscripteur' => $souscripteur,
+            'verificationUrl' => $verificationUrl,
+            'qrCode' => QrCode::format('svg')->size(180)->generate($verificationUrl),
+            'qrCodeImage' => $this->qrCodeDataUri($verificationUrl),
+            'logoDataUri' => $this->logoDataUri(),
+            'maskedNin' => $this->maskedNin($souscripteur->nin),
+        ];
+    }
+
+    private function ficheIsUnavailable(Rdv $rdv): bool
+    {
+        return $rdv->statut === Rdv::STATUT_RDV_PRIS;
+    }
+
+    private function logoDataUri(): string
+    {
+        $logoPath = public_path('images/aadl-logo.png');
+
+        if (! is_file($logoPath)) {
+            return '';
+        }
+
+        return 'data:image/png;base64,'.base64_encode(file_get_contents($logoPath));
+    }
+
+    private function qrCodeDataUri(string $text): string
+    {
+        if (! function_exists('imagecreatetruecolor')) {
+            return '';
+        }
+
+        $matrix = Encoder::encode($text, ErrorCorrectionLevel::M())->getMatrix();
+        $margin = 4;
+        $scale = 6;
+        $modules = $matrix->getWidth();
+        $imageSize = ($modules + ($margin * 2)) * $scale;
+        $image = imagecreatetruecolor($imageSize, $imageSize);
+        $white = imagecolorallocate($image, 255, 255, 255);
+        $black = imagecolorallocate($image, 17, 24, 39);
+
+        imagefill($image, 0, 0, $white);
+
+        for ($y = 0; $y < $modules; $y++) {
+            for ($x = 0; $x < $modules; $x++) {
+                if ($matrix->get($x, $y) !== 1) {
+                    continue;
+                }
+
+                $left = ($x + $margin) * $scale;
+                $top = ($y + $margin) * $scale;
+
+                imagefilledrectangle(
+                    $image,
+                    $left,
+                    $top,
+                    $left + $scale - 1,
+                    $top + $scale - 1,
+                    $black
+                );
+            }
+        }
+
+        ob_start();
+        imagepng($image);
+        $png = ob_get_clean();
+        imagedestroy($image);
+
+        return 'data:image/png;base64,'.base64_encode($png);
+    }
+
+    private function maskedNin(string $nin): string
+    {
+        $visibleDigits = 4;
+
+        if (strlen($nin) <= $visibleDigits) {
+            return $nin;
+        }
+
+        return str_repeat('*', strlen($nin) - $visibleDigits).substr($nin, -$visibleDigits);
     }
 
     private function souscripteurDrId($souscripteur): int

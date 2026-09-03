@@ -132,6 +132,21 @@ class DatabaseSeederDirectionMappingTest extends TestCase
         $this->assertSame($algerEst->id, $souscripteur->dr_id);
     }
 
+    public function test_local_seeded_pagination_preview_data_has_expected_counts_and_page_split(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+
+        $previewSouscripteurs = Souscripteur::where('code', 'like', 'PAGE%')->orderBy('code');
+        $previewRdvs = Rdv::where('motif', 'Pagination preview')->orderBy('id');
+
+        $this->assertSame(20, $previewSouscripteurs->count());
+        $this->assertSame(20, $previewRdvs->count());
+        $this->assertSame(15, $previewSouscripteurs->paginate(15, ['*'], 'page', 1)->count());
+        $this->assertSame(5, $previewSouscripteurs->paginate(15, ['*'], 'page', 2)->count());
+        $this->assertSame(15, $previewRdvs->paginate(15, ['*'], 'page', 1)->count());
+        $this->assertSame(5, $previewRdvs->paginate(15, ['*'], 'page', 2)->count());
+    }
+
     public function test_seeder_is_idempotent_for_direction_and_wilaya_mapping(): void
     {
         $this->seed(DatabaseSeeder::class);

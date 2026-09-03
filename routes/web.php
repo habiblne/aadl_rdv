@@ -33,6 +33,8 @@ Route::prefix('souscripteur')->name('souscripteur.')->group(function () {
             ->name('rdvs.create');
         Route::get('rdvs/{hashid}/fiche', [SouscripteurRdvController::class, 'fiche'])
             ->name('rdvs.fiche');
+        Route::get('rdvs/{hashid}/pdf', [SouscripteurRdvController::class, 'pdf'])
+            ->name('rdvs.pdf');
         Route::post('rdvs', [SouscripteurRdvController::class, 'store'])
             ->name('rdvs.store');
         Route::post('logout', [ActorAuthController::class, 'logout'])
